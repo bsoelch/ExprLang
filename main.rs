@@ -10,7 +10,8 @@ enum TokenType{
     Identifier,
     Keyword,
     Number,
-    Operator
+    Operator,
+    EOF
 }
 impl ToString for TokenType {
     fn to_string(&self) -> String {
@@ -19,6 +20,7 @@ impl ToString for TokenType {
             TokenType::Keyword => "Keyword",
             TokenType::Number => "Number",
             TokenType::Operator => "Operator",
+            TokenType::EOF => "EOF",
         }.to_string()
     }
 }
@@ -28,10 +30,11 @@ fn is_keyword(token_value: &str) -> bool {
         _ => false
     }
 }
-const OPERATOR_CHARS: &str = "+-*/%&|^<>=!~{}()[],;:$@";
+const OPERATOR_CHARS: &str = "+-*/%&|^<>=!~{}()[],;:$@?";
 fn is_special_char(op_char: char) -> bool {
     OPERATOR_CHARS.contains(op_char)
 }
+// TODO! ensure correct multi-char operators are matched
 fn continue_operator(prefix: &str, suffix: char) -> bool {
     match suffix {
         '=' => match prefix {
@@ -107,6 +110,31 @@ fn tokenize<'a>(input: &'a str) -> Vec<Token<'a>> {
             in_operator = is_operator
         }
     }
+    // ensure last token is finished
+    let token_value = &input[start_index..];
+    if token_value.len() > 0 {
+        // TODO? create function for resolving of token-type
+        let first_char = token_value.chars().next().unwrap();
+        let token_type = if first_char.is_digit(10) {
+            TokenType::Number
+        } else if is_special_char(first_char) {
+            TokenType::Operator
+        }else if is_keyword(token_value) {
+            TokenType::Keyword
+        } else {
+            TokenType::Identifier
+        };
+        output.push(Token{
+            token_type: token_type,
+            value: "",
+            pos: Position{line:line,line_pos: line_pos}
+        });
+    }
+    output.push(Token{
+        token_type: TokenType::EOF,
+        value: token_value,
+        pos: Position{line:line,line_pos: line_pos}
+    });
     return output
 }
 
@@ -114,6 +142,7 @@ fn tokenize<'a>(input: &'a str) -> Vec<Token<'a>> {
 
 #[derive(Debug,PartialEq,Clone,Copy)]
 enum OperatorType {
+    // binary
     Multiply,
     Divide,
     Modulo,
@@ -147,10 +176,18 @@ enum OperatorType {
     AssignARShift,
     And,
     Or,
+    // unary left
+    Negate,
+    Not,
+    BitNot,
+    Address,
+    // unary right
+    NonZero,
 }
 impl ToString for OperatorType {
     fn to_string(&self) -> String {
         match self {
+            // binary
             OperatorType::Multiply => "Multiply",
             OperatorType::Divide => "Divide",
             OperatorType::Modulo => "Modulo",
@@ -184,6 +221,13 @@ impl ToString for OperatorType {
             OperatorType::AssignARShift => "AssignARShift",
             OperatorType::And => "And",
             OperatorType::Or => "Or",
+            // unary left
+            OperatorType::Negate => "Negate",
+            OperatorType::Not => "Not",
+            OperatorType::BitNot => "BitNot",
+            OperatorType::Address => "Address",
+            // unary right
+            OperatorType::NonZero => "NonZero",
       }.to_string()
   }
 }
@@ -192,7 +236,7 @@ struct OperatorInfo {
     precedence: i16,
     right_associative: bool
 }
-const OPERATORS: [(&str,OperatorInfo); 33] = [
+const BINARY_OPERATORS: [(&str,OperatorInfo); 33] = [
     ("*", OperatorInfo{op_type: OperatorType::Multiply,precedence: 0x70,right_associative: false}),
     ("/", OperatorInfo{op_type: OperatorType::Divide,precedence: 0x70,right_associative: false}),
     ("%", OperatorInfo{op_type: OperatorType::Modulo,precedence: 0x70,right_associative: false}),
@@ -227,17 +271,38 @@ const OPERATORS: [(&str,OperatorInfo); 33] = [
     ("and", OperatorInfo{op_type: OperatorType::And,precedence: 0x01,right_associative: false}),
     ("or", OperatorInfo{op_type: OperatorType::Or,precedence: 0x00,right_associative: false}),
 ];
-static OPERATOR_INFO: OnceLock<HashMap<&str,OperatorInfo>> = OnceLock::new();
-
-fn operator_info<'a>(token: &Token<'a>) -> Option<&'static OperatorInfo> {
-    OPERATOR_INFO.get_or_init(|| {
+static BINARY_OPERATOR_INFO: OnceLock<HashMap<&str,OperatorInfo>> = OnceLock::new();
+fn binary_operator_info<'a>(token: &Token<'a>) -> Option<&'static OperatorInfo> {
+    BINARY_OPERATOR_INFO.get_or_init(|| {
         let mut map = HashMap::new();
-        for (key, value) in OPERATORS {
+        for (key, value) in BINARY_OPERATORS {
             map.insert(key, value);
         }
         map
     }).get(token.value)
 }
+fn left_unary_operator_type<'a>(token: &Token<'a>) -> Option<OperatorType> {
+    if token.token_type != TokenType::Operator {
+        return None
+    }
+    match token.value {
+        "-" => Some(OperatorType::Negate),
+        "!" => Some(OperatorType::Not),
+        "~" => Some(OperatorType::BitNot),
+        "@" => Some(OperatorType::Address),
+        _ => None
+    }
+}
+fn right_unary_operator_type<'a>(token: &Token<'a>) -> Option<OperatorType> {
+    if token.token_type != TokenType::Operator {
+        return None
+    }
+    match token.value {
+        "?" => Some(OperatorType::NonZero),
+        _ => None
+    }
+}
+
 #[derive(Debug,PartialEq,Clone,Copy)]
 enum NodeType<'a> {
     Program,
@@ -247,8 +312,11 @@ enum NodeType<'a> {
     IfElse,
     Function,
     BinaryOperator(OperatorType),
+    UnaryOperator(OperatorType), // TODO? seperate types for left and right operators
     Number(i64),
     Scope,
+    Call,
+    ArrayAccess,
     Return
 }
 impl<'a> ToString for NodeType<'a> {
@@ -260,13 +328,17 @@ impl<'a> ToString for NodeType<'a> {
             NodeType::Function => "Function".to_string(),
             NodeType::If => "If".to_string(),
             NodeType::IfElse => "IfElse".to_string(),
+            NodeType::Call =>  "Call".to_string(),
+            NodeType::ArrayAccess =>  "ArrayAccess".to_string(),
             NodeType::BinaryOperator(op_type) => format!("BinaryOperator {}",op_type.to_string()),
+            NodeType::UnaryOperator(op_type) => format!("UnaryOperator {}",op_type.to_string()),
             NodeType::Number(value) =>  format!("Number {}",value),
             NodeType::Scope =>  "Scope".to_string(),
             NodeType::Return =>  "Return".to_string(),
         }
     }
 }
+// TODO merge Node and NodeType, only use vec if child number is dynamic and larger than fixed bound
 struct Node<'a> {
     node_type: NodeType<'a>,
     children: Vec<Node<'a> >,
@@ -282,6 +354,9 @@ fn dump_ast<'a>(out_file: &mut fs::File, root: &Node<'a>,indent: usize)-> io::Re
 fn parse_program<'a>(mut tokens: &'a [Token<'a>]) -> Node<'a> {
     let mut children: Vec<Node> = Vec::new();
     while tokens.len() > 0 {
+        if tokens[0].token_type == TokenType::EOF {
+            break // reached end of file
+        }
         match try_parse_statement(tokens) {
             Ok((expr,k)) => {
                 children.push(expr);
@@ -356,7 +431,7 @@ fn try_parse_expression1<'a>(mut lhs: Node<'a>,mut tokens: &'a [Token<'a>], min_
     while tokens.len() > 0 {
         // check if next token is operator
         let mut next = &tokens[0];
-        let op_info = match operator_info(&next){
+        let op_info = match binary_operator_info(&next){
             Some(op_data) => op_data,
             None => return Ok((lhs,consumed))
         };
@@ -372,21 +447,21 @@ fn try_parse_expression1<'a>(mut lhs: Node<'a>,mut tokens: &'a [Token<'a>], min_
         if tokens.len() > 0 {
             // check next operator
             next = &tokens[0];
-            let mut op_info0 = operator_info(&next);
+            let mut op_info0 = binary_operator_info(&next);
             while op_info0.is_some() && op_info0.unwrap().precedence >= op_info.precedence + if op_info0.unwrap().right_associative {0} else {1} {
                 // consume operator
                 (rhs, rhs_size) = try_parse_expression1(rhs,tokens,op_info.precedence + if op_info0.unwrap().precedence > op_info.precedence {1} else {0})?;
                 consumed += rhs_size;
                 tokens = &tokens[rhs_size..];
                 next = &tokens[0];
-                op_info0 = operator_info(&next);
+                op_info0 = binary_operator_info(&next);
             }
         }
         lhs = Node{node_type:NodeType::BinaryOperator(op_info.op_type),children:vec![lhs,rhs]};
     }
     return Ok((lhs,consumed))
 }
-fn try_parse_operand<'a>(tokens: &'a [Token<'a>]) -> Result<(Node<'a>,usize),&'a Token<'a>> {
+fn try_parse_operand<'a>(mut tokens: &'a [Token<'a>]) -> Result<(Node<'a>,usize),&'a Token<'a>> {
     // if-else
     if tokens[0].token_type == TokenType::Keyword && tokens[0].value == "if" {
         let mut offset = 1;
@@ -413,45 +488,97 @@ fn try_parse_operand<'a>(tokens: &'a [Token<'a>]) -> Result<(Node<'a>,usize),&'a
         }},
       Err(_) => {}
     }
+    let mut consumed = 0;
+    let mut left_operators: Vec<OperatorType> = Vec::new();
+    // left unary-operators
+    while tokens.len() > 0 {
+        let op_type = left_unary_operator_type(&tokens[0]);
+        if op_type.is_none() { break; }
+        left_operators.push(op_type.unwrap());
+        consumed += 1;
+        tokens = &tokens[1..];
+    }
+    let mut expr;
     // paren
-    if tokens[0].token_type == TokenType::Operator && tokens[0].value == "(" {
+    (expr, consumed) = if tokens[0].token_type == TokenType::Operator && tokens[0].value == "(" {
         let mut offset = 1;
-        let (expr,cond_size) = try_parse_expression(&tokens[offset..])?;
+        let (body,cond_size) = try_parse_expression(&tokens[offset..])?;
         offset += cond_size;
         if tokens[offset].token_type != TokenType::Operator || tokens[offset].value != ")" {
             return Err(&tokens[offset]);
         }
-        return Ok((expr,offset+1));
-    }
+        (body, offset+1)
     // scope
-    if tokens[0].token_type == TokenType::Operator && tokens[0].value == "{" {
+    } else if tokens[0].token_type == TokenType::Operator && tokens[0].value == "{" {
         let mut offset = 1;
         let mut children = Vec::new();
         loop {
-            let (expr,cond_size) = try_parse_statement(&tokens[offset..])?;
-            children.push(expr);
+            let (body,cond_size) = try_parse_statement(&tokens[offset..])?;
+            children.push(body);
             offset += cond_size;
             if tokens[offset].token_type == TokenType::Operator && tokens[offset].value == "}" {
-                return Ok((Node{node_type: NodeType::Scope,children: children},offset+1));
+                break (Node{node_type: NodeType::Scope,children: children},offset+1)
             }
         }
-    }
-    // unary-operator
-    // TODO left unary operators
     // primitive
-    if tokens[0].token_type == TokenType::Identifier {
-        return Ok((Node{node_type: NodeType::Identifier(tokens[0].value), children: Vec::new()},1));
-    }
-    if tokens[0].token_type == TokenType::Number {
+    } else if tokens[0].token_type == TokenType::Identifier {
+        (Node{node_type: NodeType::Identifier(tokens[0].value), children: Vec::new()},1)
+    } else if tokens[0].token_type == TokenType::Number {
         // TODO custom number parser
         match tokens[0].value.parse::<i64>() {
-            Ok(value) => return Ok((Node{node_type: NodeType::Number(value), children: Vec::new()},1)),
-            Err(_) => {}
+            Ok(value) => (Node{node_type: NodeType::Number(value), children: Vec::new()},1),
+            // TODO? float support
+            Err(_) => return Err(&tokens[0])
         }
-        // TODO? float support
+    } else {
+        return Err(&tokens[0]);
+    };
+    tokens = &tokens[consumed..];
+    while tokens.len() > 0 {
+        let op_type = right_unary_operator_type(&tokens[0]);
+        if op_type.is_some() {
+            expr = Node{node_type: NodeType::UnaryOperator(op_type.unwrap()), children: vec![expr]};
+            consumed += 1;
+            tokens = &tokens[1..];
+        } else if tokens[0].token_type == TokenType::Operator && tokens[0].value == "(" {
+            if tokens[1].token_type == TokenType::Operator && tokens[1].value == ")" {
+                consumed += 2;
+                tokens = &tokens[2..];
+                expr = Node{node_type: NodeType::Call, children: vec![expr]};
+            } else {
+                tokens = &tokens[1..];
+                let (args,arg_size) = try_parse_expression(tokens)?;
+                if tokens[arg_size].token_type != TokenType::Operator || tokens[arg_size].value != ")" {
+                    return Err(&tokens[arg_size]);
+                }
+                consumed += arg_size+2;
+                tokens = &tokens[arg_size+1..];
+                expr = Node{node_type: NodeType::Call, children: vec![expr,args]};
+            }
+        } else if tokens[0].token_type == TokenType::Operator && tokens[0].value == "[" {
+            if tokens[1].token_type == TokenType::Operator && tokens[1].value == "]" {
+                consumed += 2;
+                tokens = &tokens[2..];
+                expr = Node{node_type: NodeType::ArrayAccess, children: vec![expr]};
+            } else {
+                tokens = &tokens[1..];
+                let (args,arg_size) = try_parse_expression(tokens)?;
+                if tokens[arg_size].token_type != TokenType::Operator || tokens[arg_size].value != "]" {
+                    return Err(&tokens[arg_size]);
+                }
+                consumed += arg_size+2;
+                tokens = &tokens[arg_size+1..];
+                expr = Node{node_type: NodeType::ArrayAccess, children: vec![expr,args]};
+            }
+        } else {
+            break;
+        }
     }
-    // TODO right unary operators
-    Err(&tokens[0])
+    // apply left unary operators to expression
+    for op_type in left_operators.into_iter().rev() {
+       expr = Node{node_type: NodeType::UnaryOperator(op_type), children: vec![expr]};
+    }
+    return Ok((expr,consumed));
 }
 
 

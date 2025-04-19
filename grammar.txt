@@ -5,7 +5,7 @@
 <expr> -> <binary-operator> | <operand>
 <operand> -> <if-else> | <for> | <function> | <left-unary-operator> | <right-unary-operator> | <primitive>
 <left-unary-operator> -> LEFT_UNARY_OPRATOR ( <right-unary-operator> | <primitive> )
-<right-unary-operator> -> <primitive> ( RIGHT_UNARY_OPERATOR | "[" <expression> "]" | "(" <expr> ? ")" )
+<right-unary-operator> -> <primitive> ( RIGHT_UNARY_OPERATOR | "[" <expr> ? "]" | "(" <expr> ? ")" )
 <primitive> -> <identifier> | <number> | "(" <expr> ")" | "{" <statement> * "}"
 <binary-operator> -> <expr> BINARY_OPERATOR <expr>
 <if-else> -> "if" <expr> <statement> ( "else" <statement> )
