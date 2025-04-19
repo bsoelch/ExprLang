@@ -96,6 +96,7 @@ fn tokenize<'a>(input: &'a str) -> Vec<Token<'a>> {
                 } else {
                     TokenType::Identifier
                 };
+                // TODO use position at start of token instead of end
                 output.push(Token{
                     token_type: token_type,
                     value: token_value,
@@ -130,6 +131,7 @@ enum OperatorType {
     NotEqual,
     GreaterOrEqual,
     Greater,
+    Comma,
     Assign,
     Declare,
     AssignAdd,
@@ -166,6 +168,7 @@ impl ToString for OperatorType {
             OperatorType::NotEqual => "NotEqual",
             OperatorType::GreaterOrEqual => "GreaterOrEqual",
             OperatorType::Greater => "Greater",
+            OperatorType::Comma => "Comma",
             OperatorType::Assign => "Assign",
             OperatorType::Declare => "Declare",
             OperatorType::AssignAdd => "AssignAdd",
@@ -189,24 +192,25 @@ struct OperatorInfo {
     precedence: i16,
     right_associative: bool
 }
-const OPERATORS: [(&str,OperatorInfo); 32] = [
-    ("*", OperatorInfo{op_type: OperatorType::Multiply,precedence: 0x60,right_associative: false}),
-    ("/", OperatorInfo{op_type: OperatorType::Divide,precedence: 0x60,right_associative: false}),
-    ("%", OperatorInfo{op_type: OperatorType::Modulo,precedence: 0x60,right_associative: false}),
-    ("+", OperatorInfo{op_type: OperatorType::Add,precedence: 0x50,right_associative: false}),
-    ("-", OperatorInfo{op_type: OperatorType::Subtract,precedence: 0x50,right_associative: false}),
-    ("&", OperatorInfo{op_type: OperatorType::BitAnd,precedence: 0x42,right_associative: false}),
-    ("^", OperatorInfo{op_type: OperatorType::BitXor,precedence: 0x41,right_associative: false}),
-    ("|", OperatorInfo{op_type: OperatorType::BitOr,precedence: 0x40,right_associative: false}),
-    ("<<", OperatorInfo{op_type: OperatorType::LShift,precedence: 0x30,right_associative: false}),
-    (">>", OperatorInfo{op_type: OperatorType::ARShift,precedence: 0x30,right_associative: false}),
-    (">>>", OperatorInfo{op_type: OperatorType::LRShift,precedence: 0x30,right_associative: false}),
-    ("<", OperatorInfo{op_type: OperatorType::Less,precedence: 0x20,right_associative: false}),
-    ("<=", OperatorInfo{op_type: OperatorType::LessOrEqual,precedence: 0x20,right_associative: false}),
-    ("==", OperatorInfo{op_type: OperatorType::Equal,precedence: 0x20,right_associative: false}),
-    ("!=", OperatorInfo{op_type: OperatorType::NotEqual,precedence: 0x20,right_associative: false}),
-    (">=", OperatorInfo{op_type: OperatorType::GreaterOrEqual,precedence: 0x20,right_associative: false}),
-    (">", OperatorInfo{op_type: OperatorType::Greater,precedence: 0x20,right_associative: false}),
+const OPERATORS: [(&str,OperatorInfo); 33] = [
+    ("*", OperatorInfo{op_type: OperatorType::Multiply,precedence: 0x70,right_associative: false}),
+    ("/", OperatorInfo{op_type: OperatorType::Divide,precedence: 0x70,right_associative: false}),
+    ("%", OperatorInfo{op_type: OperatorType::Modulo,precedence: 0x70,right_associative: false}),
+    ("+", OperatorInfo{op_type: OperatorType::Add,precedence: 0x60,right_associative: false}),
+    ("-", OperatorInfo{op_type: OperatorType::Subtract,precedence: 0x60,right_associative: false}),
+    ("&", OperatorInfo{op_type: OperatorType::BitAnd,precedence: 0x52,right_associative: false}),
+    ("^", OperatorInfo{op_type: OperatorType::BitXor,precedence: 0x51,right_associative: false}),
+    ("|", OperatorInfo{op_type: OperatorType::BitOr,precedence: 0x50,right_associative: false}),
+    ("<<", OperatorInfo{op_type: OperatorType::LShift,precedence: 0x40,right_associative: false}),
+    (">>", OperatorInfo{op_type: OperatorType::ARShift,precedence: 0x40,right_associative: false}),
+    (">>>", OperatorInfo{op_type: OperatorType::LRShift,precedence: 0x40,right_associative: false}),
+    ("<", OperatorInfo{op_type: OperatorType::Less,precedence: 0x30,right_associative: false}),
+    ("<=", OperatorInfo{op_type: OperatorType::LessOrEqual,precedence: 0x30,right_associative: false}),
+    ("==", OperatorInfo{op_type: OperatorType::Equal,precedence: 0x30,right_associative: false}),
+    ("!=", OperatorInfo{op_type: OperatorType::NotEqual,precedence: 0x30,right_associative: false}),
+    (">=", OperatorInfo{op_type: OperatorType::GreaterOrEqual,precedence: 0x30,right_associative: false}),
+    (">", OperatorInfo{op_type: OperatorType::Greater,precedence: 0x30,right_associative: false}),
+    (",", OperatorInfo{op_type: OperatorType::Comma,precedence: 0x20,right_associative: false}),
     ("=", OperatorInfo{op_type: OperatorType::Assign,precedence: 0x10,right_associative: true}),
     (":=", OperatorInfo{op_type: OperatorType::Declare,precedence: 0x10,right_associative: true}),
     ("*=", OperatorInfo{op_type: OperatorType::AssignMul,precedence: 0x10,right_associative: true}),
@@ -237,31 +241,29 @@ fn operator_info<'a>(token: &Token<'a>) -> Option<&'static OperatorInfo> {
 #[derive(Debug,PartialEq,Clone,Copy)]
 enum NodeType<'a> {
     Program,
-    Assignment,
-    Declaration,
     Identifier(&'a str),
     IdentifierList,
     If,
     IfElse,
     Function,
-    Expression,
     BinaryOperator(OperatorType),
     Number(i64),
+    Scope,
+    Return
 }
 impl<'a> ToString for NodeType<'a> {
     fn to_string(&self) -> String {
         match self {
             NodeType::Program => "Program".to_string(),
-            NodeType::Assignment => "Assignment".to_string(),
-            NodeType::Declaration => "Declaration".to_string(),
             NodeType::Identifier(name) => format!("Identifier: \"{}\"",name),
             NodeType::IdentifierList => "IdentifierList".to_string(),
             NodeType::Function => "Function".to_string(),
             NodeType::If => "If".to_string(),
             NodeType::IfElse => "IfElse".to_string(),
             NodeType::BinaryOperator(op_type) => format!("BinaryOperator {}",op_type.to_string()),
-            NodeType::Expression => "Expression".to_string(),
             NodeType::Number(value) =>  format!("Number {}",value),
+            NodeType::Scope =>  "Scope".to_string(),
+            NodeType::Return =>  "Return".to_string(),
         }
     }
 }
@@ -294,21 +296,12 @@ fn parse_program<'a>(mut tokens: &'a [Token<'a>]) -> Node<'a> {
     Node{node_type: NodeType::Program, children: children}
 }
 fn try_parse_statement<'a>(mut tokens: &'a [Token<'a>]) -> Result<(Node<'a>,usize),&'a Token<'a>> {
-    let mut node_type = NodeType::Expression;
-    let mut id_list = None;
+    // TODO support return
     let mut consumed = 0;
-    // is declaration or assignemnt
-    match try_parse_identifier_list(tokens) {
-      Ok((id,offset)) => {
-        if offset+1 < tokens.len() && tokens[offset].token_type == TokenType::Operator &&
-            (tokens[offset].value == "=" || tokens[offset].value == ":=") {
-            node_type = if tokens[offset].value == "=" { NodeType::Assignment } else { NodeType::Declaration };
-            id_list = Some(id);
-            tokens = &tokens[(offset+1)..];
-            consumed = offset+1;
-        }
-      }
-      Err(_)=> {} // ignore
+    let is_return = tokens[0].token_type == TokenType::Keyword && tokens[0].value == "return";
+    if is_return {
+        consumed = 1;
+        tokens = &tokens[1..];
     }
     let (expr,k) = try_parse_expression(tokens)?;
     consumed += k;
@@ -316,12 +309,10 @@ fn try_parse_statement<'a>(mut tokens: &'a [Token<'a>]) -> Result<(Node<'a>,usiz
     if k < tokens.len() && tokens[k].token_type == TokenType::Operator && tokens[k].value == ";" {
        consumed += 1;
     }
-    match node_type {
-        NodeType::Expression => Ok((expr,consumed)),
-        NodeType::Assignment | NodeType::Declaration => {
-            Ok((Node{node_type: node_type, children: vec![id_list.unwrap(),expr]},consumed))
-        },
-        _ => unreachable!()
+    if is_return {
+        Ok((Node{node_type:NodeType::Return,children: vec![expr]},consumed))
+    } else {
+        Ok((expr,consumed))
     }
 }
 fn try_parse_identifier_list<'a>(mut tokens: &'a [Token<'a>]) -> Result<(Node<'a>,usize),&'a Token<'a>> {
@@ -359,6 +350,7 @@ fn try_parse_expression<'a>(tokens: &'a [Token<'a>]) -> Result<(Node<'a>,usize),
     let (expr,expr_size) = try_parse_expression1(lhs,&tokens[offset..],0)?;
     return Ok((expr,expr_size+offset));
 }
+// TODO? merge chains of `,` to single operation
 fn try_parse_expression1<'a>(mut lhs: Node<'a>,mut tokens: &'a [Token<'a>], min_precedence: i16) -> Result<(Node<'a>,usize),&'a Token<'a>> {
     let mut consumed = 0;
     while tokens.len() > 0 {
@@ -422,9 +414,30 @@ fn try_parse_operand<'a>(tokens: &'a [Token<'a>]) -> Result<(Node<'a>,usize),&'a
       Err(_) => {}
     }
     // paren
+    if tokens[0].token_type == TokenType::Operator && tokens[0].value == "(" {
+        let mut offset = 1;
+        let (expr,cond_size) = try_parse_expression(&tokens[offset..])?;
+        offset += cond_size;
+        if tokens[offset].token_type != TokenType::Operator || tokens[offset].value != ")" {
+            return Err(&tokens[offset]);
+        }
+        return Ok((expr,offset+1));
+    }
     // scope
+    if tokens[0].token_type == TokenType::Operator && tokens[0].value == "{" {
+        let mut offset = 1;
+        let mut children = Vec::new();
+        loop {
+            let (expr,cond_size) = try_parse_statement(&tokens[offset..])?;
+            children.push(expr);
+            offset += cond_size;
+            if tokens[offset].token_type == TokenType::Operator && tokens[offset].value == "}" {
+                return Ok((Node{node_type: NodeType::Scope,children: children},offset+1));
+            }
+        }
+    }
     // unary-operator
-    // TODO unary operators
+    // TODO left unary operators
     // primitive
     if tokens[0].token_type == TokenType::Identifier {
         return Ok((Node{node_type: NodeType::Identifier(tokens[0].value), children: Vec::new()},1));
@@ -437,6 +450,7 @@ fn try_parse_operand<'a>(tokens: &'a [Token<'a>]) -> Result<(Node<'a>,usize),&'a
         }
         // TODO? float support
     }
+    // TODO right unary operators
     Err(&tokens[0])
 }
 

@@ -1,14 +1,13 @@
 <program> -> <statement> *
-<statement> -> <assignment> | <declaration> | <exprStatement>
-<declaration> -> <identifier-list> ":=" <exprStatement>
-<assignment> -> <identifier-list> "=" <exprStatement>
+<statement> -> <exprStatement> | <returnStatement>
+<returnStatement> -> "return" <exprStatement>
 <exprStatement> -> <expr> ";" ?
-<expr> -> <binary-operator> | <operand> 
-<operand> -> <if-else> | <for> | <function> | <left-unary-operator> | <right-unary-operator> | <primitive> 
-<left-unary-operator> -> ( "-" | "!" ) (<right-unary-operator> | <primitive> )
-<right-unary-operator> -> <primitive> ( "[" <expression> "]" )
+<expr> -> <binary-operator> | <operand>
+<operand> -> <if-else> | <for> | <function> | <left-unary-operator> | <right-unary-operator> | <primitive>
+<left-unary-operator> -> LEFT_UNARY_OPRATOR ( <right-unary-operator> | <primitive> )
+<right-unary-operator> -> <primitive> ( RIGHT_UNARY_OPERATOR | "[" <expression> "]" | "(" <expr> ? ")" )
 <primitive> -> <identifier> | <number> | "(" <expr> ")" | "{" <statement> * "}"
-<binary-operator> -> <expr> ( "+" | "-" | "*" | "/" | "%" | "&" | "|" | "^" | ( "<" | ">") "=" ? | "==" | "!=" | "," ) <expr>
+<binary-operator> -> <expr> BINARY_OPERATOR <expr>
 <if-else> -> "if" <expr> <statement> ( "else" <statement> )
 <for> -> "for" <identifier-list> "in" <expr> <statement>
 <function> -> <identifier-list> | "(" ")" "=>" <statement>
