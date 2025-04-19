@@ -1,0 +1,6 @@
+*.zip
+*.o
+main
+tokens.txt
+ast.txt
+in.txt

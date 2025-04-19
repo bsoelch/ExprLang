@@ -1,0 +1,16 @@
+<program> -> <statement> *
+<statement> -> <assignment> | <declaration> | <exprStatement>
+<declaration> -> <identifier-list> ":=" <exprStatement>
+<assignment> -> <identifier-list> "=" <exprStatement>
+<exprStatement> -> <expr> ";" ?
+<expr> -> <binary-operator> | <operand> 
+<operand> -> <if-else> | <for> | <function> | <left-unary-operator> | <right-unary-operator> | <primitive> 
+<left-unary-operator> -> ( "-" | "!" ) (<right-unary-operator> | <primitive> )
+<right-unary-operator> -> <primitive> ( "[" <expression> "]" )
+<primitive> -> <identifier> | <number> | "(" <expr> ")" | "{" <statement> * "}"
+<binary-operator> -> <expr> ( "+" | "-" | "*" | "/" | "%" | "&" | "|" | "^" | ( "<" | ">") "=" ? | "==" | "!=" | "," ) <expr>
+<if-else> -> "if" <expr> <statement> ( "else" <statement> )
+<for> -> "for" <identifier-list> "in" <expr> <statement>
+<function> -> <identifier-list> | "(" ")" "=>" <statement>
+<identifier-list> -> <identifier-list-body> | "(" <identifier-list-body> ")"
+<identifier-list-body> -> <identifier> ( "," <identifier> )*
