@@ -151,9 +151,9 @@ enum OperatorType {
     Modulo,
     Add,
     Subtract,
-    BitAnd,
-    BitOr,
-    BitXor,
+    And,
+    Or,
+    Xor,
     LShift,
     ARShift,
     LRShift,
@@ -163,7 +163,7 @@ enum OperatorType {
     NotEqual,
     GreaterOrEqual,
     Greater,
-    Comma,
+    // assignment
     Assign,
     Declare,
     AssignAdd,
@@ -171,14 +171,12 @@ enum OperatorType {
     AssignMul,
     AssignDiv,
     AssignMod,
-    AssignBitAnd,
-    AssignBitOr,
-    AssignBitXor,
+    AssignAnd,
+    AssignOr,
+    AssignXor,
     AssignLShift,
     AssignLRShift,
     AssignARShift,
-    And,
-    Or,
     // unary left
     Negate,
     Not,
@@ -186,6 +184,9 @@ enum OperatorType {
     Address,
     // unary right
     NonZero,
+    // special
+    ShortcircuitAnd,
+    ShortcircuitOr,
 }
 impl ToString for OperatorType {
     fn to_string(&self) -> String {
@@ -196,9 +197,9 @@ impl ToString for OperatorType {
             OperatorType::Modulo => "Modulo",
             OperatorType::Add => "Add",
             OperatorType::Subtract => "Subtract",
-            OperatorType::BitAnd => "BitAnd",
-            OperatorType::BitOr => "BitOr",
-            OperatorType::BitXor => "BitXor",
+            OperatorType::And => "And",
+            OperatorType::Or => "Or",
+            OperatorType::Xor => "Xor",
             OperatorType::LShift => "LShift",
             OperatorType::ARShift => "ARShift",
             OperatorType::LRShift => "LRShift",
@@ -208,7 +209,6 @@ impl ToString for OperatorType {
             OperatorType::NotEqual => "NotEqual",
             OperatorType::GreaterOrEqual => "GreaterOrEqual",
             OperatorType::Greater => "Greater",
-            OperatorType::Comma => "Comma",
             OperatorType::Assign => "Assign",
             OperatorType::Declare => "Declare",
             OperatorType::AssignAdd => "AssignAdd",
@@ -216,14 +216,12 @@ impl ToString for OperatorType {
             OperatorType::AssignMul => "AssignMul",
             OperatorType::AssignDiv => "AssignDiv",
             OperatorType::AssignMod => "AssignMod",
-            OperatorType::AssignBitAnd => "AssignBitAnd",
-            OperatorType::AssignBitOr => "AssignBitOr",
-            OperatorType::AssignBitXor => "AssignBitXor",
+            OperatorType::AssignAnd => "AssignAnd",
+            OperatorType::AssignOr => "AssignOr",
+            OperatorType::AssignXor => "AssignXor",
             OperatorType::AssignLShift => "AssignLShift",
             OperatorType::AssignLRShift => "AssignLRShift",
             OperatorType::AssignARShift => "AssignARShift",
-            OperatorType::And => "And",
-            OperatorType::Or => "Or",
             // unary left
             OperatorType::Negate => "Negate",
             OperatorType::Not => "Not",
@@ -231,6 +229,9 @@ impl ToString for OperatorType {
             OperatorType::Address => "Address",
             // unary right
             OperatorType::NonZero => "NonZero",
+            // special
+            OperatorType::ShortcircuitAnd => "ShortcircuitAnd",
+            OperatorType::ShortcircuitOr => "ShortcircuitOr",
       }.to_string()
   }
 }
@@ -239,15 +240,15 @@ struct OperatorInfo {
     precedence: i16,
     right_associative: bool
 }
-const BINARY_OPERATORS: [(&str,OperatorInfo); 33] = [
+const BINARY_OPERATORS: [(&str,OperatorInfo); 19] = [
     ("*", OperatorInfo{op_type: OperatorType::Multiply,precedence: 0x70,right_associative: false}),
     ("/", OperatorInfo{op_type: OperatorType::Divide,precedence: 0x70,right_associative: false}),
     ("%", OperatorInfo{op_type: OperatorType::Modulo,precedence: 0x70,right_associative: false}),
     ("+", OperatorInfo{op_type: OperatorType::Add,precedence: 0x60,right_associative: false}),
     ("-", OperatorInfo{op_type: OperatorType::Subtract,precedence: 0x60,right_associative: false}),
-    ("&", OperatorInfo{op_type: OperatorType::BitAnd,precedence: 0x52,right_associative: false}),
-    ("^", OperatorInfo{op_type: OperatorType::BitXor,precedence: 0x51,right_associative: false}),
-    ("|", OperatorInfo{op_type: OperatorType::BitOr,precedence: 0x50,right_associative: false}),
+    ("&", OperatorInfo{op_type: OperatorType::And,precedence: 0x52,right_associative: false}),
+    ("^", OperatorInfo{op_type: OperatorType::Xor,precedence: 0x51,right_associative: false}),
+    ("|", OperatorInfo{op_type: OperatorType::Or,precedence: 0x50,right_associative: false}),
     ("<<", OperatorInfo{op_type: OperatorType::LShift,precedence: 0x40,right_associative: false}),
     (">>", OperatorInfo{op_type: OperatorType::ARShift,precedence: 0x40,right_associative: false}),
     (">>>", OperatorInfo{op_type: OperatorType::LRShift,precedence: 0x40,right_associative: false}),
@@ -257,26 +258,9 @@ const BINARY_OPERATORS: [(&str,OperatorInfo); 33] = [
     ("!=", OperatorInfo{op_type: OperatorType::NotEqual,precedence: 0x30,right_associative: false}),
     (">=", OperatorInfo{op_type: OperatorType::GreaterOrEqual,precedence: 0x30,right_associative: false}),
     (">", OperatorInfo{op_type: OperatorType::Greater,precedence: 0x30,right_associative: false}),
-    // "weak"-operators: not allowed in type-expressions
-    (",", OperatorInfo{op_type: OperatorType::Comma,precedence: 0x20,right_associative: false}),
-    ("=", OperatorInfo{op_type: OperatorType::Assign,precedence: 0x10,right_associative: true}),
-    (":=", OperatorInfo{op_type: OperatorType::Declare,precedence: 0x10,right_associative: true}),
-    ("*=", OperatorInfo{op_type: OperatorType::AssignMul,precedence: 0x10,right_associative: true}),
-    ("/=", OperatorInfo{op_type: OperatorType::AssignDiv,precedence: 0x10,right_associative: true}),
-    ("%=", OperatorInfo{op_type: OperatorType::AssignMod,precedence: 0x10,right_associative: true}),
-    ("+=", OperatorInfo{op_type: OperatorType::AssignAdd,precedence: 0x10,right_associative: true}),
-    ("-=", OperatorInfo{op_type: OperatorType::AssignSub,precedence: 0x10,right_associative: true}),
-    ("&=", OperatorInfo{op_type: OperatorType::AssignBitAnd,precedence: 0x10,right_associative: true}),
-    ("|=", OperatorInfo{op_type: OperatorType::AssignBitOr,precedence: 0x10,right_associative: true}),
-    ("^=", OperatorInfo{op_type: OperatorType::AssignBitXor,precedence: 0x10,right_associative: true}),
-    ("<<=", OperatorInfo{op_type: OperatorType::AssignLShift,precedence: 0x10,right_associative: true}),
-    (">>=", OperatorInfo{op_type: OperatorType::AssignARShift,precedence: 0x10,right_associative: true}),
-    (">>>=", OperatorInfo{op_type: OperatorType::AssignLRShift,precedence: 0x10,right_associative: true}),
-    ("and", OperatorInfo{op_type: OperatorType::And,precedence: 0x01,right_associative: false}),
-    ("or", OperatorInfo{op_type: OperatorType::Or,precedence: 0x00,right_associative: false}),
+    ("and", OperatorInfo{op_type: OperatorType::ShortcircuitAnd,precedence: 0x20,right_associative: false}),
+    ("or", OperatorInfo{op_type: OperatorType::ShortcircuitOr,precedence: 0x20,right_associative: false}),
 ];
-// minimum precedence for type-operators
-const TYPE_OPERATORS_MIN_PRECEDENCE: i16 = 0x21;
 static BINARY_OPERATOR_INFO: OnceLock<HashMap<&str,OperatorInfo>> = OnceLock::new();
 fn binary_operator_info<'a>(token: &Token<'a>) -> Option<&'static OperatorInfo> {
     BINARY_OPERATOR_INFO.get_or_init(|| {
@@ -308,6 +292,24 @@ fn right_unary_operator_type<'a>(token: &Token<'a>) -> Option<OperatorType> {
         _ => None
     }
 }
+fn assignment_operator_type<'a>(op_name: &'a str) -> Option<OperatorType> {
+    match op_name {
+        "=" => Some(OperatorType::Assign),
+        ":=" => Some(OperatorType::Declare),
+        "*=" => Some(OperatorType::AssignMul),
+        "/=" => Some(OperatorType::AssignDiv),
+        "%=" => Some(OperatorType::AssignMod),
+        "+=" => Some(OperatorType::AssignAdd),
+        "-=" => Some(OperatorType::AssignSub),
+        "&=" => Some(OperatorType::AssignAnd),
+        "|=" => Some(OperatorType::AssignOr),
+        "^=" => Some(OperatorType::AssignXor),
+        "<<=" => Some(OperatorType::AssignLShift),
+        ">>=" => Some(OperatorType::AssignARShift),
+        ">>>=" => Some(OperatorType::AssignLRShift),
+        _ => None
+    }
+}
 
 #[derive(Debug,PartialEq,Clone,Copy)]
 enum NodeType<'a> {
@@ -322,6 +324,7 @@ enum NodeType<'a> {
     UnaryOperator(OperatorType), // TODO? seperate types for left and right operators
     Number(i64),
     Scope,
+    Tuple,
     Call,
     ArrayAccess,
     Return
@@ -342,6 +345,7 @@ impl<'a> ToString for NodeType<'a> {
             NodeType::UnaryOperator(op_type) => format!("UnaryOperator {}",op_type.to_string()),
             NodeType::Number(value) =>  format!("Number {}",value),
             NodeType::Scope =>  "Scope".to_string(),
+            NodeType::Tuple =>  "Tuple".to_string(),
             NodeType::Return =>  "Return".to_string(),
         }
     }
@@ -429,7 +433,7 @@ fn try_parse_identifier_list<'a>(mut tokens: &'a [Token<'a>]) -> Result<(Node<'a
         if tokens[0].token_type == TokenType::Operator && tokens[0].value == ":" {
             consumed+=1;
             tokens=&tokens[1..];
-            let (type_expr,k) = try_parse_type_expression(tokens)?;
+            let (type_expr,k) = try_parse_infix_expression(tokens)?;
             children.last_mut().unwrap().children.push(type_expr);
             consumed+=k;
             tokens=&tokens[k..];
@@ -437,18 +441,46 @@ fn try_parse_identifier_list<'a>(mut tokens: &'a [Token<'a>]) -> Result<(Node<'a
     }
 }
 fn try_parse_expression<'a>(tokens: &'a [Token<'a>]) -> Result<(Node<'a>,usize),&'a Token<'a>> {
-    let (lhs,offset) = try_parse_operand(tokens,true)?;
-    let (expr,expr_size) = try_parse_expression1(lhs,&tokens[offset..],0,true)?;
+    // function & assignment
+    let res = try_parse_identifier_list(tokens);
+    match res {
+      Ok((args,offset)) => {
+        if tokens[offset].token_type == TokenType::Operator {
+          if tokens[offset].value == "=>" {
+            let (body,body_size) = try_parse_statement(&tokens[offset+1..])?;
+            return Ok((Node{node_type: NodeType::Function, children: vec![args,body]},offset+body_size+1));
+          } else {
+            match assignment_operator_type(tokens[offset].value) {
+              Some(assign_type) => {
+                let (rhs,rhs_size) = try_parse_expression(&tokens[offset+1..])?;
+                return Ok((Node{node_type: NodeType::BinaryOperator(assign_type), children: vec![args,rhs]},offset+rhs_size+1));
+              }
+              None => {}
+            }
+          }
+        }
+      },
+      Err(_) => {}
+    }
+    let (expr,offset0) = try_parse_infix_expression(tokens)?;
+    if tokens[offset0].token_type != TokenType::Operator || tokens[offset0].value != "," {
+      return Ok((expr,offset0));
+    }
+    let mut elts = vec![expr];
+    let mut offset = offset0;
+    while tokens[offset].token_type == TokenType::Operator && tokens[offset].value == "," {
+      let (next,k) = try_parse_infix_expression(&tokens[offset+1..])?;
+      elts.push(next);
+      offset += k+1;
+    }
+    return Ok((Node{node_type: NodeType::Tuple, children: elts},offset));
+}
+fn try_parse_infix_expression<'a>(tokens: &'a [Token<'a>]) -> Result<(Node<'a>,usize),&'a Token<'a>> {
+    let (lhs,offset) = try_parse_operand(tokens)?;
+    let (expr,expr_size) = try_parse_expression1(lhs,&tokens[offset..],0)?;
     return Ok((expr,expr_size+offset));
 }
-fn try_parse_type_expression<'a>(tokens: &'a [Token<'a>]) -> Result<(Node<'a>,usize),&'a Token<'a>> {
-    let (lhs,offset) = try_parse_operand(tokens,false)?;
-    // TODO? tell expression parser to ignore function declarations
-    let (expr,expr_size) = try_parse_expression1(lhs,&tokens[offset..],TYPE_OPERATORS_MIN_PRECEDENCE,false)?;
-    return Ok((expr,expr_size+offset));
-}
-// TODO? merge chains of `,` to single operation
-fn try_parse_expression1<'a>(mut lhs: Node<'a>,mut tokens: &'a [Token<'a>], min_precedence: i16, allow_functions: bool) -> Result<(Node<'a>,usize),&'a Token<'a>> {
+fn try_parse_expression1<'a>(mut lhs: Node<'a>,mut tokens: &'a [Token<'a>], min_precedence: i16) -> Result<(Node<'a>,usize),&'a Token<'a>> {
     let mut consumed = 0;
     while tokens.len() > 0 {
         // check if next token is operator
@@ -463,7 +495,7 @@ fn try_parse_expression1<'a>(mut lhs: Node<'a>,mut tokens: &'a [Token<'a>], min_
         // consume operator
         consumed += 1;
         tokens = &tokens[1..];
-        let (mut rhs,mut rhs_size) = try_parse_operand(tokens,allow_functions)?;
+        let (mut rhs,mut rhs_size) = try_parse_operand(tokens)?;
         consumed += rhs_size;
         tokens = &tokens[rhs_size..];
         if tokens.len() > 0 {
@@ -472,7 +504,7 @@ fn try_parse_expression1<'a>(mut lhs: Node<'a>,mut tokens: &'a [Token<'a>], min_
             let mut op_info0 = binary_operator_info(&next);
             while op_info0.is_some() && op_info0.unwrap().precedence >= op_info.precedence + if op_info0.unwrap().right_associative {0} else {1} {
                 // consume operator
-                (rhs, rhs_size) = try_parse_expression1(rhs,tokens,op_info.precedence + if op_info0.unwrap().precedence > op_info.precedence {1} else {0}, allow_functions)?;
+                (rhs, rhs_size) = try_parse_expression1(rhs,tokens,op_info.precedence + if op_info0.unwrap().precedence > op_info.precedence {1} else {0})?;
                 consumed += rhs_size;
                 tokens = &tokens[rhs_size..];
                 next = &tokens[0];
@@ -483,7 +515,7 @@ fn try_parse_expression1<'a>(mut lhs: Node<'a>,mut tokens: &'a [Token<'a>], min_
     }
     return Ok((lhs,consumed))
 }
-fn try_parse_operand<'a>(mut tokens: &'a [Token<'a>], allow_functions: bool) -> Result<(Node<'a>,usize),&'a Token<'a>> {
+fn try_parse_operand<'a>(mut tokens: &'a [Token<'a>]) -> Result<(Node<'a>,usize),&'a Token<'a>> {
     // if-else
     if tokens[0].token_type == TokenType::Keyword && tokens[0].value == "if" {
         let mut offset = 1;
@@ -512,18 +544,6 @@ fn try_parse_operand<'a>(mut tokens: &'a [Token<'a>], allow_functions: bool) -> 
         let (loop_body,loop_size) = try_parse_expression(&tokens[offset..])?;
         offset += loop_size;
         return Ok((Node{node_type:NodeType::For,children: vec![vars,container,loop_body]},offset));
-    }
-    // function
-    if allow_functions {
-        let res = try_parse_identifier_list(tokens);
-        match res{
-          Ok((args,offset)) => {
-            if tokens[offset].token_type == TokenType::Operator && tokens[offset].value == "=>" {
-                let (body,body_size) = try_parse_statement(&tokens[offset+1..])?;
-                return Ok((Node{node_type: NodeType::Function, children: vec![args,body]},offset+body_size+1));
-            }},
-          Err(_) => {}
-        }
     }
     let mut consumed = 0;
     let mut left_operators: Vec<OperatorType> = Vec::new();

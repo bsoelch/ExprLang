@@ -2,17 +2,18 @@
 <statement> -> <exprStatement> | <returnStatement>
 <returnStatement> -> "return" <exprStatement>
 <exprStatement> -> <expr> ";" ?
-<expr> -> <binary-operator> | <operand>
-<operand> -> <operand1> | <function>
-<operand1> -> <if-else> | <for> | <left-unary-operator> | <right-unary-operator> | <primitive>
-<type-expr> -> <binary-operator1> | <operand1>
+<expr> -> <assign_expr> | <rhs-expr>
+<assign_expr> -> <identifier-list> ASSIGNMENT_OPERATOR <expr> | <function>
+<rhs-expr> -> ( <infix-expr> ( "," <infix-expr> )* )
+<infix-expr> -> <binary-operator> | <operand>
+<binary-operator> -> <infix-expr> BINARY_OPERATOR <infix-expr>
+<operand> -> <if-else> | <for> | <left-unary-operator> | <right-unary-operator> | <primitive>
 <left-unary-operator> -> LEFT_UNARY_OPRATOR* ( <right-unary-operator> | <primitive> )
 <right-unary-operator> -> <primitive> ( RIGHT_UNARY_OPERATOR | "[" <expr> ? "]" | "(" <expr> ? ")" )*
 <primitive> -> <identifier> | <number> | "(" <expr> ")" | "{" <statement> * "}"
-<binary-operator> -> <expr> BINARY_OPERATOR <expr>
 <if-else> -> "if" <expr> <statement> ( "else" <statement> )
 <for> -> "for" <identifier-list> "in" <expr> <statement>
 <function> -> <identifier-list> | "(" ")" "=>" <statement>
 <identifier-list> -> <identifier-list-body> | "(" <identifier-list-body> ")"
 <identifier-list-body> -> <typed-identifier> ( "," <typed-identifier> )*
-<typed-identifier> -> <identifier> (":" <type-expr> )?
+<typed-identifier> -> <identifier> (":" <infix-expr> )?
