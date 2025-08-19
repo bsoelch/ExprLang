@@ -257,6 +257,7 @@ const BINARY_OPERATORS: [(&str,OperatorInfo); 33] = [
     ("!=", OperatorInfo{op_type: OperatorType::NotEqual,precedence: 0x30,right_associative: false}),
     (">=", OperatorInfo{op_type: OperatorType::GreaterOrEqual,precedence: 0x30,right_associative: false}),
     (">", OperatorInfo{op_type: OperatorType::Greater,precedence: 0x30,right_associative: false}),
+    // "weak"-operators: not allowed in type-expressions
     (",", OperatorInfo{op_type: OperatorType::Comma,precedence: 0x20,right_associative: false}),
     ("=", OperatorInfo{op_type: OperatorType::Assign,precedence: 0x10,right_associative: true}),
     (":=", OperatorInfo{op_type: OperatorType::Declare,precedence: 0x10,right_associative: true}),
@@ -274,6 +275,8 @@ const BINARY_OPERATORS: [(&str,OperatorInfo); 33] = [
     ("and", OperatorInfo{op_type: OperatorType::And,precedence: 0x01,right_associative: false}),
     ("or", OperatorInfo{op_type: OperatorType::Or,precedence: 0x00,right_associative: false}),
 ];
+// minimum precedence for type-operators
+const TYPE_OPERATORS_MIN_PRECEDENCE: i16 = 0x21;
 static BINARY_OPERATOR_INFO: OnceLock<HashMap<&str,OperatorInfo>> = OnceLock::new();
 fn binary_operator_info<'a>(token: &Token<'a>) -> Option<&'static OperatorInfo> {
     BINARY_OPERATOR_INFO.get_or_init(|| {
@@ -313,6 +316,7 @@ enum NodeType<'a> {
     IdentifierList,
     If,
     IfElse,
+    For,
     Function,
     BinaryOperator(OperatorType),
     UnaryOperator(OperatorType), // TODO? seperate types for left and right operators
@@ -331,6 +335,7 @@ impl<'a> ToString for NodeType<'a> {
             NodeType::Function => "Function".to_string(),
             NodeType::If => "If".to_string(),
             NodeType::IfElse => "IfElse".to_string(),
+            NodeType::For => "For".to_string(),
             NodeType::Call =>  "Call".to_string(),
             NodeType::ArrayAccess =>  "ArrayAccess".to_string(),
             NodeType::BinaryOperator(op_type) => format!("BinaryOperator {}",op_type.to_string()),
@@ -421,15 +426,29 @@ fn try_parse_identifier_list<'a>(mut tokens: &'a [Token<'a>]) -> Result<(Node<'a
         } else {
             return Err(&tokens[0])
         }
+        if tokens[0].token_type == TokenType::Operator && tokens[0].value == ":" {
+            consumed+=1;
+            tokens=&tokens[1..];
+            let (type_expr,k) = try_parse_type_expression(tokens)?;
+            children.last_mut().unwrap().children.push(type_expr);
+            consumed+=k;
+            tokens=&tokens[k..];
+        }
     }
 }
 fn try_parse_expression<'a>(tokens: &'a [Token<'a>]) -> Result<(Node<'a>,usize),&'a Token<'a>> {
-    let (lhs,offset) = try_parse_operand(tokens)?;
-    let (expr,expr_size) = try_parse_expression1(lhs,&tokens[offset..],0)?;
+    let (lhs,offset) = try_parse_operand(tokens,true)?;
+    let (expr,expr_size) = try_parse_expression1(lhs,&tokens[offset..],0,true)?;
+    return Ok((expr,expr_size+offset));
+}
+fn try_parse_type_expression<'a>(tokens: &'a [Token<'a>]) -> Result<(Node<'a>,usize),&'a Token<'a>> {
+    let (lhs,offset) = try_parse_operand(tokens,false)?;
+    // TODO? tell expression parser to ignore function declarations
+    let (expr,expr_size) = try_parse_expression1(lhs,&tokens[offset..],TYPE_OPERATORS_MIN_PRECEDENCE,false)?;
     return Ok((expr,expr_size+offset));
 }
 // TODO? merge chains of `,` to single operation
-fn try_parse_expression1<'a>(mut lhs: Node<'a>,mut tokens: &'a [Token<'a>], min_precedence: i16) -> Result<(Node<'a>,usize),&'a Token<'a>> {
+fn try_parse_expression1<'a>(mut lhs: Node<'a>,mut tokens: &'a [Token<'a>], min_precedence: i16, allow_functions: bool) -> Result<(Node<'a>,usize),&'a Token<'a>> {
     let mut consumed = 0;
     while tokens.len() > 0 {
         // check if next token is operator
@@ -444,7 +463,7 @@ fn try_parse_expression1<'a>(mut lhs: Node<'a>,mut tokens: &'a [Token<'a>], min_
         // consume operator
         consumed += 1;
         tokens = &tokens[1..];
-        let (mut rhs,mut rhs_size) = try_parse_operand(tokens)?;
+        let (mut rhs,mut rhs_size) = try_parse_operand(tokens,allow_functions)?;
         consumed += rhs_size;
         tokens = &tokens[rhs_size..];
         if tokens.len() > 0 {
@@ -453,7 +472,7 @@ fn try_parse_expression1<'a>(mut lhs: Node<'a>,mut tokens: &'a [Token<'a>], min_
             let mut op_info0 = binary_operator_info(&next);
             while op_info0.is_some() && op_info0.unwrap().precedence >= op_info.precedence + if op_info0.unwrap().right_associative {0} else {1} {
                 // consume operator
-                (rhs, rhs_size) = try_parse_expression1(rhs,tokens,op_info.precedence + if op_info0.unwrap().precedence > op_info.precedence {1} else {0})?;
+                (rhs, rhs_size) = try_parse_expression1(rhs,tokens,op_info.precedence + if op_info0.unwrap().precedence > op_info.precedence {1} else {0}, allow_functions)?;
                 consumed += rhs_size;
                 tokens = &tokens[rhs_size..];
                 next = &tokens[0];
@@ -464,7 +483,7 @@ fn try_parse_expression1<'a>(mut lhs: Node<'a>,mut tokens: &'a [Token<'a>], min_
     }
     return Ok((lhs,consumed))
 }
-fn try_parse_operand<'a>(mut tokens: &'a [Token<'a>]) -> Result<(Node<'a>,usize),&'a Token<'a>> {
+fn try_parse_operand<'a>(mut tokens: &'a [Token<'a>], allow_functions: bool) -> Result<(Node<'a>,usize),&'a Token<'a>> {
     // if-else
     if tokens[0].token_type == TokenType::Keyword && tokens[0].value == "if" {
         let mut offset = 1;
@@ -480,16 +499,31 @@ fn try_parse_operand<'a>(mut tokens: &'a [Token<'a>]) -> Result<(Node<'a>,usize)
         return Ok((Node{node_type:NodeType::If,children: vec![condition,if_body]},offset));
     }
     // for
-    // TODO? for-body
+    if tokens[0].token_type == TokenType::Keyword && tokens[0].value == "for" {
+        let mut offset = 1;
+        let (vars,vars_size) = try_parse_identifier_list(&tokens[offset..])?;
+        offset += vars_size;
+        if tokens[offset].token_type != TokenType::Keyword || tokens[offset].value != "in" {
+            return Err(&tokens[offset]);
+        }
+        offset +=1;
+        let (container,container_size) = try_parse_expression(&tokens[offset..])?;
+        offset += container_size;
+        let (loop_body,loop_size) = try_parse_expression(&tokens[offset..])?;
+        offset += loop_size;
+        return Ok((Node{node_type:NodeType::For,children: vec![vars,container,loop_body]},offset));
+    }
     // function
-    let res = try_parse_identifier_list(tokens);
-    match res{
-      Ok((args,offset)) => {
-        if tokens[offset].token_type == TokenType::Operator && tokens[offset].value == "=>" {
-            let (body,body_size) = try_parse_statement(&tokens[offset+1..])?;
-            return Ok((Node{node_type: NodeType::Function, children: vec![args,body]},offset+body_size+1));
-        }},
-      Err(_) => {}
+    if allow_functions {
+        let res = try_parse_identifier_list(tokens);
+        match res{
+          Ok((args,offset)) => {
+            if tokens[offset].token_type == TokenType::Operator && tokens[offset].value == "=>" {
+                let (body,body_size) = try_parse_statement(&tokens[offset+1..])?;
+                return Ok((Node{node_type: NodeType::Function, children: vec![args,body]},offset+body_size+1));
+            }},
+          Err(_) => {}
+        }
     }
     let mut consumed = 0;
     let mut left_operators: Vec<OperatorType> = Vec::new();
