@@ -76,6 +76,8 @@ fn tokenize<'a>(input: &'a str) -> Vec<Token<'a>> {
     let mut start_index: usize=0;
     let mut line = 1;
     let mut line_pos = 0;
+    let mut start_line = 1;
+    let mut start_pos = 0;
     let mut output = Vec::new();
     let mut in_operator = false;
     for (i, c) in input.chars().enumerate() {
@@ -99,14 +101,15 @@ fn tokenize<'a>(input: &'a str) -> Vec<Token<'a>> {
                 } else {
                     TokenType::Identifier
                 };
-                // TODO use position at start of token instead of end
                 output.push(Token{
                     token_type: token_type,
                     value: token_value,
-                    pos: Position{line:line,line_pos: line_pos}
+                    pos: Position{line:start_line,line_pos: start_pos}
                 });
             }
             start_index= if c.is_whitespace() { i+1 } else { i };
+            start_line = line;
+            start_pos = line_pos - if c.is_whitespace() { 0 } else { 1 };
             in_operator = is_operator
         }
     }
@@ -127,7 +130,7 @@ fn tokenize<'a>(input: &'a str) -> Vec<Token<'a>> {
         output.push(Token{
             token_type: token_type,
             value: "",
-            pos: Position{line:line,line_pos: line_pos}
+            pos: Position{line:start_line,line_pos: start_pos}
         });
     }
     output.push(Token{
