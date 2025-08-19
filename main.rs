@@ -75,14 +75,14 @@ fn tokenize<'a>(input: &'a str) -> Vec<Token<'a>> {
     // TODO support strings and comments
     let mut start_index: usize=0;
     let mut line = 1;
-    let mut line_pos = 0;
+    let mut line_pos = 1;
     let mut start_line = 1;
     let mut start_pos = 0;
     let mut output = Vec::new();
     let mut in_operator = false;
     for (i, c) in input.chars().enumerate() {
         if c == '\n' {
-            line_pos = 0;
+            line_pos = 1;
             line += 1;
         } else {
             line_pos += 1;
